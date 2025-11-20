@@ -1,11 +1,18 @@
 terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-    }
+  required_version = ">= 1.1.0"
+
+  backend "azurerm" {
+    resource_group_name   = "rg-ncy_3"
+    storage_account_name  = "tfstatencystorage"
+    container_name        = "tfstate"
+    key                   = "terraform.tfstate"
   }
 
-  required_version = ">= 1.1.0"
+  required_providers {
+    azurerm = {
+      source = "hashicorp/azurerm"
+    }
+  }
 }
 
 provider "azurerm" {
