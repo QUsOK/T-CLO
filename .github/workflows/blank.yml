@@ -53,8 +53,15 @@ jobs:
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "$VM_IP" > ../../ansible/inventory.ini
 
+      - name: Debug folder structure
+        working-directory: ./terraform/iaas
+        run: |
+          pwd
+          ls -R
+
       # 7️⃣ Lancement du playbook Ansible
       - name: Run Ansible Playbook
         working-directory: ./terraform/iaas
         run: |
+          ls -l
           ansible-playbook -i ../../ansible/inventory.ini ../../ansible/playbook.yml --private-key ./tls_private_key.pem
