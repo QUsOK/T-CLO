@@ -55,6 +55,6 @@ jobs:
 
       # 7️⃣ Lancement du playbook Ansible
       - name: Run Ansible Playbook
-        working-directory: ./ansible
+        working-directory: ./terraform/iaas
         run: |
-          ansible-playbook -i inventory.ini playbook.yml --private-key ../terraform/iaas/tls_private_key.pem
+          ansible-playbook -i ../../ansible/inventory.ini ../../ansible/playbook.yml --private-key ./tls_private_key.pem
