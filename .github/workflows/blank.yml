@@ -45,16 +45,31 @@ jobs:
           terraform init -input=false
           terraform apply -auto-approve
 
-      # 6️⃣ Génération de l'inventaire Ansible
+      # 6️⃣ Export SSH Private Key from Terraform output
+      - name: Export SSH private key
+        working-directory: ./terraform/iaas
+        run: |
+          terraform output -raw ssh_private_key > tls_private_key.pem
+          chmod 600 tls_private_key.pem
+
+      # 7️⃣ Générer l’inventaire Ansible
       - name: Generate Ansible inventory
         working-directory: ./terraform/iaas
         run: |
+          mkdir -p ../../ansible_quickstart
           VM_IP=$(terraform output -raw vm_public_ip)
-          echo "$VM_IP" > ansible_quickstart/inventory.ini
+          echo "$VM_IP ansible_user=azureuser ansible_ssh_private_key_file=./tls_private_key.pem" > ../../ansible_quickstart/inventory.ini
 
-      # 7️⃣ Lancement du playbook Ansible
-      - name: Run Ansible Playbook
-        working-directory: ./terraform/iaas/ansible_quickstart
+      # 8️⃣ Wait for SSH to be ready
+      - name: Wait for SSH
+        working-directory: ./ansible_quickstart
         run: |
-          ansible-playbook -i inventory.ini playbook.yml --private-key ../terraform/iaas/tls_private_key.pem
+          VM_IP=$(cat inventory.ini | awk '{print $1}')
+          ansible all -i inventory.ini -m wait_for -a "host=$VM_IP port=22 timeout=300"
+
+      # 9️⃣ Run Ansible Playbook
+      - name: Run Ansible Playbook
+        working-directory: ./ansible_quickstart
+        run: |
+          ansible-playbook -i inventory.ini playbook.yml
 
