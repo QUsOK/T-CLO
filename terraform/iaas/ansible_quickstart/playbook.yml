@@ -1,0 +1,95 @@
+---
+- name: Configuration IaaS Azure
+  hosts: all
+  become: true
+
+  vars:
+    app_src_path: "files/sample-app-master/"
+    app_dest_path: "/home/azureuser/app/"
+
+  tasks:
+    # --- Installation système ---
+    - name: Installer dépendances système
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: true
+
+    - name: Installer Docker
+      apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Démarrer et activer Docker
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    # --- Dossier destination ---
+    - name: Créer le dossier de déploiement
+      file:
+        path: "{{ app_dest_path }}"
+        state: directory
+        owner: azureuser
+        group: azureuser
+        mode: '0755'
+
+    # --- Copier l'application ---
+    - name: Copier l'application sample-app-master
+      copy:
+        src: "{{ app_src_path }}"
+        dest: "{{ app_dest_path }}"
+        owner: azureuser
+        group: azureuser
+        mode: '0755'
+
+    # --- Créer le réseau Docker ---
+    - name: Créer un réseau Docker pour Laravel/MySQL
+      command: docker network create laravel-net
+      ignore_errors: true
+
+    # --- Lancer MySQL ---
+    - name: Lancer MySQL dans Docker
+      command: >
+        docker run -d
+        --name mysql
+        --network laravel-net
+        -e MYSQL_ROOT_PASSWORD=
+        -e MYSQL_DATABASE=laravel
+        -p 3306:3306
+        mysql:5.7
+      ignore_errors: true
+
+    # --- Build Docker Laravel ---
+    - name: Construire l'image Docker de l'application
+      command: docker build -t sampleapp "{{ app_dest_path }}"
+
+    # --- Supprimer ancien conteneur ---
+    - name: Supprimer ancien conteneur sampleapp
+      command: docker rm -f sampleapp
+      ignore_errors: true
+
+    # --- Lancer Laravel ---
+    - name: Lancer le conteneur Laravel
+      command: >
+        docker run -d
+        --name sampleapp
+        --network laravel-net
+        -p 80:80
+        sampleapp
+
+    # --- Créer .env dans le conteneur ---
+    - name: Créer un fichier .env dans le conteneur
+      command: >
+        docker exec sampleapp bash -c
+        "cp /var/www/html/.env.example /var/www/html/.env"
+
+    # --- Générer APP_KEY Laravel ---
+    - name: Générer l'APP_KEY Laravel
+      command: docker exec sampleapp php artisan key:generate
