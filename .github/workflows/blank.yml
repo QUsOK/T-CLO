@@ -49,9 +49,8 @@ jobs:
       - name: Export SSH Private Key
         working-directory: ./terraform/iaas
         run: |
-          mkdir -p ../../ansible_quickstart
-          terraform output -raw ssh_private_key > ../../ansible_quickstart/tls_private_key.pem
-          chmod 600 ../../ansible_quickstart/tls_private_key.pem
+          terraform output -raw ssh_private_key > ansible_quickstart/tls_private_key.pem
+          chmod 600 ansible_quickstart/tls_private_key.pem
 
 
       # 7️⃣ Générer l’inventaire Ansible
@@ -59,11 +58,11 @@ jobs:
         working-directory: ./terraform/iaas
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
-          echo "$VM_IP ansible_user=azureuser ansible_ssh_private_key_file=./tls_private_key.pem" > ../../ansible_quickstart/inventory.ini
+          echo "$VM_IP ansible_user=azureuser ansible_ssh_private_key_file=./tls_private_key.pem" > ansible_quickstart/inventory.ini
 
       # 8️⃣ Wait for SSH
       - name: Wait for SSH
-        working-directory: ./ansible_quickstart
+        working-directory: ./terraform/iaas/ansible_quickstart
         run: |
           VM_IP=$(cat inventory.ini | awk '{print $1}')
           ansible all -i inventory.ini -m wait_for -a "host=$VM_IP port=22 timeout=300" \
@@ -72,7 +71,7 @@ jobs:
 
       # 9️⃣ Run Ansible Playbook
       - name: Run Ansible Playbook
-        working-directory: ./ansible_quickstart
+        working-directory: ./terraform/iaas/ansible_quickstart
         run: |
           pwd
           ls -l
