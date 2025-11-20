@@ -49,15 +49,15 @@ jobs:
       - name: Export SSH Private Key
         working-directory: ./terraform/iaas
         run: |
-          terraform output -raw ssh_private_key > ../ansible_quickstart/tls_private_key.pem
-          chmod 600 ../ansible_quickstart/tls_private_key.pem
+          mkdir -p ../../ansible_quickstart
+          terraform output -raw ssh_private_key > ../../ansible_quickstart/tls_private_key.pem
+          chmod 600 ../../ansible_quickstart/tls_private_key.pem
 
 
       # 7️⃣ Générer l’inventaire Ansible
       - name: Generate Ansible inventory
         working-directory: ./terraform/iaas
         run: |
-          mkdir -p ../../ansible_quickstart
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "$VM_IP ansible_user=azureuser ansible_ssh_private_key_file=./tls_private_key.pem" > ../../ansible_quickstart/inventory.ini
 
