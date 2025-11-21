@@ -134,10 +134,6 @@
     - name: Construire l'image Docker de l'application
       command: docker build -t sampleapp "{{ app_dest_path }}"
 
-    - name: Supprimer ancien conteneur sampleapp
-      command: docker rm -f sampleapp
-      ignore_errors: true
-
     - name: Construire et lancer l'application Laravel
       block:
         - name: Supprimer ancien conteneur sampleapp
