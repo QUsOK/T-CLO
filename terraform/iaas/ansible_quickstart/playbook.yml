@@ -8,7 +8,18 @@
     app_dest_path: "/home/azureuser/app/"
 
   tasks:
-    # --- Installation système ---
+    # --------------------------------------------------------------------------
+    # SECURITE APT : empêcher les redémarrages de services pendant apt install
+    # --------------------------------------------------------------------------
+    - name: Désactiver les redémarrages automatiques pendant apt (needrestart)
+      copy:
+        dest: /etc/needrestart/conf.d/no-restart.conf
+        content: |
+          $nrconf{restart} = 'a';
+
+    # --------------------------------------------------------------------------
+    # Système de base
+    # --------------------------------------------------------------------------
     - name: Installer dépendances système
       apt:
         name:
@@ -19,11 +30,36 @@
         state: present
         update_cache: true
 
-    - name: Installer Docker
+    # --------------------------------------------------------------------------
+    # Installation Docker officielle (Docker CE)
+    # --------------------------------------------------------------------------
+    - name: Installer dépendances pour Docker
       apt:
-        name: docker.io
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
         state: present
         update_cache: true
+
+    - name: Ajouter la clé GPG Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Ajouter le repository Docker officiel
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Installer Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: latest
 
     - name: Démarrer et activer Docker
       service:
@@ -31,7 +67,16 @@
         state: started
         enabled: true
 
-    # --- Dossier destination ---
+    # --------------------------------------------------------------------------
+    # Sécurité connexion SSH (Docker peut provoquer micro-coupure réseau)
+    # --------------------------------------------------------------------------
+    - name: Vérifier que SSH est bien de retour
+      wait_for_connection:
+        timeout: 60
+
+    # --------------------------------------------------------------------------
+    # Préparation du dossier d’application
+    # --------------------------------------------------------------------------
     - name: Créer le dossier de déploiement
       file:
         path: "{{ app_dest_path }}"
@@ -40,8 +85,7 @@
         group: azureuser
         mode: '0755'
 
-    # --- Copier l'application ---
-    - name: Copier l'application sample-app-master
+    - name: Copier l'application Laravel sample-app-master
       copy:
         src: "{{ app_src_path }}"
         dest: "{{ app_dest_path }}"
@@ -49,13 +93,14 @@
         group: azureuser
         mode: '0755'
 
-    # --- Créer le réseau Docker ---
-    - name: Créer un réseau Docker pour Laravel/MySQL
+    # --------------------------------------------------------------------------
+    # Docker : MySQL + App
+    # --------------------------------------------------------------------------
+    - name: Créer un réseau Docker
       command: docker network create laravel-net
       ignore_errors: true
 
-    # --- Lancer MySQL ---
-    - name: Lancer MySQL dans Docker
+    - name: Lancer MySQL
       command: >
         docker run -d
         --name mysql
@@ -66,17 +111,14 @@
         mysql:5.7
       ignore_errors: true
 
-    # --- Build Docker Laravel ---
     - name: Construire l'image Docker de l'application
       command: docker build -t sampleapp "{{ app_dest_path }}"
 
-    # --- Supprimer ancien conteneur ---
     - name: Supprimer ancien conteneur sampleapp
       command: docker rm -f sampleapp
       ignore_errors: true
 
-    # --- Lancer Laravel ---
-    - name: Lancer le conteneur Laravel
+    - name: Lancer Laravel
       command: >
         docker run -d
         --name sampleapp
@@ -84,12 +126,10 @@
         -p 80:80
         sampleapp
 
-    # --- Créer .env dans le conteneur ---
-    - name: Créer un fichier .env dans le conteneur
+    - name: Copier .env example dans .env
       command: >
         docker exec sampleapp bash -c
         "cp /var/www/html/.env.example /var/www/html/.env"
 
-    # --- Générer APP_KEY Laravel ---
-    - name: Générer l'APP_KEY Laravel
+    - name: Générer APP_KEY Laravel
       command: docker exec sampleapp php artisan key:generate
