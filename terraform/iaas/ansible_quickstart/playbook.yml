@@ -25,8 +25,26 @@
     # 2. Installer Docker via script officiel
     #    (aucun restart de service, 100% safe pour SSH)
     # --------------------------------------------------------------------------
-    - name: Installer Docker via script officiel get.docker.com
-      shell: curl -fsSL https://get.docker.com | sh
+    - name: Ajouter clé GPG Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Ajouter dépôt APT Docker
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+        state: present
+
+    - name: Installer Docker et dépendances
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: latest
+        update_cache: true
+
 
     - name: Démarrer et activer Docker
       service:
