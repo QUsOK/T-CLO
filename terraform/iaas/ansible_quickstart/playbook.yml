@@ -12,7 +12,7 @@
       apt:
         name: openssh-server
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Activer et démarrer SSH
       service:
@@ -46,10 +46,10 @@
     # Ajouter clé GPG Docker
     # ------------------------------------------------------------
     - name: Ajouter clé GPG Docker
-      get_url:
-        url: https://download.docker.com/linux/debian/gpg
-        dest: /etc/apt/keyrings/docker.gpg
-        mode: '0644'
+      ansible.builtin.shell: |
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/docker-archive-keyring.gpg
 
     # ------------------------------------------------------------
     # Ajouter dépôt APT Docker Debian
@@ -59,14 +59,14 @@
         repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bullseye stable"
         filename: docker
         state: present
-        update_cache: yes
+        update_cache: true
 
     # ------------------------------------------------------------
     # Mise à jour du cache apt et dépendances système
     # ------------------------------------------------------------
     - name: Mise à jour du cache apt
       apt:
-        update_cache: yes
+        update_cache: true
 
     - name: Installer dépendances système
       apt:
@@ -76,7 +76,7 @@
           - curl
           - software-properties-common
         state: present
-        update_cache: yes
+        update_cache: true
 
     # ------------------------------------------------------------
     # Installer Docker
@@ -89,7 +89,7 @@
           - containerd.io
           - docker-compose-plugin
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Démarrer et activer Docker
       service:
