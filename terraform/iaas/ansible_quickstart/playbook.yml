@@ -9,6 +9,12 @@
     docker_network: "laravel-net"
 
   tasks:
+    # --- Nettoyer ancien dépôt Docker s'il existe ---
+    - name: Supprimer dépôt Docker existant
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
     # --- Installer dépendances système ---
     - name: Installer dépendances système
       apt:
@@ -19,12 +25,6 @@
           - software-properties-common
         state: present
         update_cache: yes
-
-    # --- Nettoyer ancien dépôt Docker s'il existe ---
-    - name: Supprimer dépôt Docker existant
-      file:
-        path: /etc/apt/sources.list.d/docker.list
-        state: absent
 
     # --- Ajouter clé GPG Docker ---
     - name: Ajouter clé GPG Docker
