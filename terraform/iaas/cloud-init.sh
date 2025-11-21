@@ -2,41 +2,23 @@
 set -e
 
 # -----------------------------
-# Installer les prérequis
+# Installer SSH et sudo
 # -----------------------------
 apt-get update -y
-apt-get install -y curl tar git jq ansible sudo
+apt-get install -y openssh-server sudo
 
 # -----------------------------
-# Créer l'utilisateur runner
+# Démarrer et activer le service SSH
 # -----------------------------
-useradd -m -s /bin/bash github || true
-cd /home/github
-sudo -u github mkdir -p actions-runner && cd actions-runner
+systemctl enable ssh
+systemctl start ssh
 
 # -----------------------------
-# Installer le runner GitHub
+# Ajouter l'utilisateur admin avec clé SSH
 # -----------------------------
-RUNNER_VERSION="2.320.0"
-curl -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz -L \
-  https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
-tar xzf ./actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
-rm actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
-
-# -----------------------------
-# Configurer le runner avec variables Terraform
-# -----------------------------
-sudo -u github ./config.sh \
-  --url https://github.com/${GITHUB_ORG}/${GITHUB_REPO} \
-  --token ${RUNNER_TOKEN} \
-  --name self-hosted-ubuntu \
-  --labels self-hosted,linux,x64 \
-  --unattended
-
-# -----------------------------
-# Installer le runner comme service systemd
-# -----------------------------
-./svc.sh install github
-./svc.sh start
-
-echo "✅ Runner GitHub self-hosted installé et démarré !"
+useradd -m -s /bin/bash azureuser || true
+mkdir -p /home/azureuser/.ssh
+echo "${ssh_public_key}" > /home/azureuser/.ssh/authorized_keys
+chmod 700 /home/azureuser/.ssh
+chmod 600 /home/azureuser/.ssh/authorized_keys
+chown -R azureuser:azureuser /home/azureuser/.ssh
