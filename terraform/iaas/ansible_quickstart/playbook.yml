@@ -9,9 +9,15 @@
 
   tasks:
     # --------------------------------------------------------------------------
-    # SECURITE APT : empêcher les redémarrages de services pendant apt install
+    # SECURITE APT : empêcher les redémarrages automatiques (needrestart)
     # --------------------------------------------------------------------------
-    - name: Désactiver les redémarrages automatiques pendant apt (needrestart)
+    - name: Installer needrestart
+      apt:
+        name: needrestart
+        state: present
+        update_cache: true
+
+    - name: Désactiver les redémarrages automatiques pendant apt
       copy:
         dest: /etc/needrestart/conf.d/no-restart.conf
         content: |
