@@ -19,11 +19,6 @@
         name: ssh
         state: started
         enabled: true
-    - name: Wait for SSH
-      working-directory: ./ansible_quickstart
-      run: |
-        VM_IP=$(cat inventory.ini | awk '{print $1}')
-        ansible all -i inventory.ini -m wait_for -a "host=$VM_IP port=22 timeout=300"
 
     # ------------------------------------------------------------
     # Nettoyer dépôt Docker existant pour éviter conflits Signed-By
