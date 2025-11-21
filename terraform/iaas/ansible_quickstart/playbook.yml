@@ -6,124 +6,137 @@
   vars:
     app_src_path: "files/sample-app-master/"
     app_dest_path: "/home/azureuser/app/"
-    mysql_root_password: "rootpass"
-    mysql_database: "laravel"
     docker_network: "laravel-net"
-    container_app_name: "sampleapp"
-    container_mysql_name: "mysql"
+    mysql_container: "mysql"
+    laravel_container: "sampleapp"
 
   tasks:
-    # --- Mise à jour du cache apt ---
+    # --- Mise à jour du cache apt et dépendances système ---
     - name: Mise à jour du cache apt
-      apt:
-        update_cache: true
-        cache_valid_time: 3600
+      ansible.builtin.apt:
+        update_cache: yes
+        force_apt_get: yes
 
-    # --- Installer dépendances système ---
     - name: Installer dépendances système
-      apt:
+      ansible.builtin.apt:
         name:
           - apt-transport-https
           - ca-certificates
           - curl
           - software-properties-common
         state: present
+        update_cache: yes
 
-    # --- Installer Docker si non présent ---
-    - name: Vérifier si Docker est installé
-      command: docker --version
-      register: docker_installed
-      ignore_errors: true
-
-    - name: Installer Docker via APT
-      apt:
-        name:
-          - docker.io
+    # --- Ajouter clé GPG Docker ---
+    - name: Ajouter clé GPG Docker
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
         state: present
-      when: docker_installed.rc != 0
+
+    # --- Ajouter dépôt APT Docker si absent ---
+    - name: Ajouter dépôt APT Docker
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu focal stable"
+        state: present
+        filename: docker.list
+
+    # --- Mise à jour du cache apt après ajout du dépôt ---
+    - name: Mise à jour du cache apt après dépôt Docker
+      ansible.builtin.apt:
+        update_cache: yes
+
+    # --- Installer Docker ---
+    - name: Installer Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+          - docker-buildx-plugin
+        state: present
 
     - name: Démarrer et activer Docker
-      service:
+      ansible.builtin.service:
         name: docker
         state: started
         enabled: true
 
-    # --- Créer le dossier de déploiement si absent ---
+    # --- Créer le dossier de déploiement Laravel ---
     - name: Créer le dossier de déploiement
-      file:
+      ansible.builtin.file:
         path: "{{ app_dest_path }}"
         state: directory
         owner: azureuser
         group: azureuser
         mode: '0755'
 
-    # --- Copier l'application ---
+    # --- Copier l'application Laravel ---
     - name: Copier l'application sample-app-master
-      copy:
+      ansible.builtin.copy:
         src: "{{ app_src_path }}"
         dest: "{{ app_dest_path }}"
         owner: azureuser
         group: azureuser
         mode: '0755'
 
-    # --- Créer un réseau Docker si absent ---
-    - name: Créer réseau Docker pour Laravel/MySQL
-      docker_network:
-        name: "{{ docker_network }}"
-        state: present
+    # --- Créer le réseau Docker si absent ---
+    - name: Créer un réseau Docker pour Laravel/MySQL
+      ansible.builtin.command:
+        cmd: docker network inspect {{ docker_network }}
+      register: network_check
+      ignore_errors: yes
+
+    - name: Créer le réseau Docker si inexistant
+      ansible.builtin.command:
+        cmd: docker network create {{ docker_network }}
+      when: network_check.failed
 
     # --- Lancer MySQL dans Docker si absent ---
-    - name: Vérifier si conteneur MySQL existe
-      command: docker ps -a --filter "name={{ container_mysql_name }}" --format "{{'{{.Names}}'}}"
-      register: mysql_container
-      ignore_errors: true
+    - name: Vérifier si MySQL est déjà lancé
+      ansible.builtin.command:
+        cmd: docker inspect -f '{{ "{{.State.Running}}" }}' {{ mysql_container }}
+      register: mysql_check
+      ignore_errors: yes
 
-    - name: Lancer MySQL
-      docker_container:
-        name: "{{ container_mysql_name }}"
-        image: "mysql:5.7"
-        state: started
-        restart_policy: unless-stopped
-        networks:
-          - name: "{{ docker_network }}"
-        env:
-          MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
-          MYSQL_DATABASE: "{{ mysql_database }}"
-        published_ports:
-          - "3306:3306"
-      when: mysql_container.stdout == ""
+    - name: Lancer MySQL dans Docker si absent
+      ansible.builtin.command:
+        cmd: >
+          docker run -d --name {{ mysql_container }}
+          --network {{ docker_network }}
+          -e MYSQL_ROOT_PASSWORD=root
+          -e MYSQL_DATABASE=laravel
+          -p 3306:3306
+          mysql:5.7
+      when: mysql_check.failed
 
-    # --- Build Docker Laravel si image non présente ---
+    # --- Construire l'image Docker Laravel ---
     - name: Construire l'image Docker de l'application
-      docker_image:
-        name: "{{ container_app_name }}"
-        build:
-          path: "{{ app_dest_path }}"
-      register: app_image
+      ansible.builtin.command:
+        cmd: docker build -t {{ laravel_container }} "{{ app_dest_path }}"
 
-    # --- Lancer le conteneur Laravel si absent ---
-    - name: Vérifier si conteneur Laravel existe
-      command: docker ps -a --filter "name={{ container_app_name }}" --format "{{'{{.Names}}'}}"
-      register: laravel_container
-      ignore_errors: true
+    # --- Supprimer ancien conteneur Laravel si existant ---
+    - name: Supprimer ancien conteneur sampleapp
+      ansible.builtin.command:
+        cmd: docker rm -f {{ laravel_container }}
+      ignore_errors: yes
 
-    - name: Lancer conteneur Laravel
-      docker_container:
-        name: "{{ container_app_name }}"
-        image: "{{ container_app_name }}"
-        state: started
-        restart_policy: unless-stopped
-        networks:
-          - name: "{{ docker_network }}"
-        published_ports:
-          - "80:80"
-      when: laravel_container.stdout == ""
+    # --- Lancer le conteneur Laravel ---
+    - name: Lancer le conteneur Laravel
+      ansible.builtin.command:
+        cmd: >
+          docker run -d
+          --name {{ laravel_container }}
+          --network {{ docker_network }}
+          -p 80:80
+          {{ laravel_container }}
 
-    # --- Créer le .env et générer APP_KEY si conteneur Laravel a été lancé ---
-    - name: Copier .env.example dans .env
-      command: docker exec "{{ container_app_name }}" bash -c "cp /var/www/html/.env.example /var/www/html/.env"
-      when: laravel_container.stdout == ""
+    # --- Créer .env dans le conteneur Laravel ---
+    - name: Créer un fichier .env dans le conteneur
+      ansible.builtin.command:
+        cmd: docker exec {{ laravel_container }} bash -c "cp /var/www/html/.env.example /var/www/html/.env"
 
+    # --- Générer APP_KEY Laravel ---
     - name: Générer APP_KEY Laravel
-      command: docker exec "{{ container_app_name }}" php artisan key:generate
-      when: laravel_container.stdout == ""
+      ansible.builtin.command:
+        cmd: docker exec {{ laravel_container }} php artisan key:generate
