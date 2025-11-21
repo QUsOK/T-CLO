@@ -8,6 +8,22 @@
     app_dest_path: "/home/azureuser/app/"
 
   tasks:
+    - name: Installer et démarrer SSH
+      apt:
+        name: openssh-server
+        state: present
+        update_cache: yes
+
+    - name: Activer et démarrer SSH
+      service:
+        name: ssh
+        state: started
+        enabled: true
+    - name: Wait for SSH
+      working-directory: ./ansible_quickstart
+      run: |
+        VM_IP=$(cat inventory.ini | awk '{print $1}')
+        ansible all -i inventory.ini -m wait_for -a "host=$VM_IP port=22 timeout=300"
 
     # ------------------------------------------------------------
     # Nettoyer dépôt Docker existant pour éviter conflits Signed-By
