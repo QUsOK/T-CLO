@@ -34,15 +34,6 @@
         state: absent
 
     # ------------------------------------------------------------
-    # Créer le dossier keyrings
-    # ------------------------------------------------------------
-    - name: Créer /etc/apt/keyrings
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-
-    # ------------------------------------------------------------
     # Ajouter clé GPG Docker
     # ------------------------------------------------------------
     - name: Ajouter clé GPG Docker
@@ -56,7 +47,7 @@
     # ------------------------------------------------------------
     - name: Ajouter dépôt APT Docker Debian
       apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bullseye stable"
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bullseye stable"
         filename: docker
         state: present
         update_cache: true
