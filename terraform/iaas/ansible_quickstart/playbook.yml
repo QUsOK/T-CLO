@@ -6,11 +6,20 @@
   vars:
     app_src_path: "files/sample-app-master/"
     app_dest_path: "/home/azureuser/app/"
+    mysql_root_password: "rootpass"
+    mysql_database: "laravel"
+    docker_network: "laravel-net"
+    container_app_name: "sampleapp"
+    container_mysql_name: "mysql"
 
   tasks:
-    # --------------------------------------------------------------------------
-    # 1. Installation dépendances système
-    # --------------------------------------------------------------------------
+    # --- Mise à jour du cache apt ---
+    - name: Mise à jour du cache apt
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # --- Installer dépendances système ---
     - name: Installer dépendances système
       apt:
         name:
@@ -19,32 +28,19 @@
           - curl
           - software-properties-common
         state: present
-        update_cache: true
 
-    # --------------------------------------------------------------------------
-    # 2. Installer Docker via script officiel
-    #    (aucun restart de service, 100% safe pour SSH)
-    # --------------------------------------------------------------------------
-    - name: Ajouter clé GPG Docker
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
+    # --- Installer Docker si non présent ---
+    - name: Vérifier si Docker est installé
+      command: docker --version
+      register: docker_installed
+      ignore_errors: true
 
-    - name: Ajouter dépôt APT Docker
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
-        state: present
-
-    - name: Installer Docker et dépendances
+    - name: Installer Docker via APT
       apt:
         name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin
-        state: latest
-        update_cache: true
-
+          - docker.io
+        state: present
+      when: docker_installed.rc != 0
 
     - name: Démarrer et activer Docker
       service:
@@ -52,9 +48,7 @@
         state: started
         enabled: true
 
-    # --------------------------------------------------------------------------
-    # 3. Préparation dossier application
-    # --------------------------------------------------------------------------
+    # --- Créer le dossier de déploiement si absent ---
     - name: Créer le dossier de déploiement
       file:
         path: "{{ app_dest_path }}"
@@ -63,6 +57,7 @@
         group: azureuser
         mode: '0755'
 
+    # --- Copier l'application ---
     - name: Copier l'application sample-app-master
       copy:
         src: "{{ app_src_path }}"
@@ -71,49 +66,64 @@
         group: azureuser
         mode: '0755'
 
-    # --------------------------------------------------------------------------
-    # 4. Docker : réseau + MySQL + application Laravel
-    # --------------------------------------------------------------------------
-    - name: Créer un réseau Docker pour Laravel/MySQL
-      command: docker network create laravel-net
+    # --- Créer un réseau Docker si absent ---
+    - name: Créer réseau Docker pour Laravel/MySQL
+      docker_network:
+        name: "{{ docker_network }}"
+        state: present
+
+    # --- Lancer MySQL dans Docker si absent ---
+    - name: Vérifier si conteneur MySQL existe
+      command: docker ps -a --filter "name={{ container_mysql_name }}" --format "{{'{{.Names}}'}}"
+      register: mysql_container
       ignore_errors: true
 
-    - name: Lancer MySQL dans Docker
-      command: >
-        docker run -d
-        --name mysql
-        --network laravel-net
-        -e MYSQL_ROOT_PASSWORD=
-        -e MYSQL_DATABASE=laravel
-        -p 3306:3306
-        mysql:5.7
-      ignore_errors: true
+    - name: Lancer MySQL
+      docker_container:
+        name: "{{ container_mysql_name }}"
+        image: "mysql:5.7"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: "{{ docker_network }}"
+        env:
+          MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+          MYSQL_DATABASE: "{{ mysql_database }}"
+        published_ports:
+          - "3306:3306"
+      when: mysql_container.stdout == ""
 
-    # --------------------------------------------------------------------------
-    # 5. Build & run application Laravel
-    # --------------------------------------------------------------------------
+    # --- Build Docker Laravel si image non présente ---
     - name: Construire l'image Docker de l'application
-      command: docker build -t sampleapp "{{ app_dest_path }}"
+      docker_image:
+        name: "{{ container_app_name }}"
+        build:
+          path: "{{ app_dest_path }}"
+      register: app_image
 
-    - name: Supprimer ancien conteneur sampleapp
-      command: docker rm -f sampleapp
+    # --- Lancer le conteneur Laravel si absent ---
+    - name: Vérifier si conteneur Laravel existe
+      command: docker ps -a --filter "name={{ container_app_name }}" --format "{{'{{.Names}}'}}"
+      register: laravel_container
       ignore_errors: true
 
-    - name: Lancer le conteneur Laravel
-      command: >
-        docker run -d
-        --name sampleapp
-        --network laravel-net
-        -p 80:80
-        sampleapp
+    - name: Lancer conteneur Laravel
+      docker_container:
+        name: "{{ container_app_name }}"
+        image: "{{ container_app_name }}"
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: "{{ docker_network }}"
+        published_ports:
+          - "80:80"
+      when: laravel_container.stdout == ""
 
-    # --------------------------------------------------------------------------
-    # 6. Configuration Laravel
-    # --------------------------------------------------------------------------
-    - name: Créer un fichier .env dans le conteneur
-      command: >
-        docker exec sampleapp bash -c
-        "cp /var/www/html/.env.example /var/www/html/.env"
+    # --- Créer le .env et générer APP_KEY si conteneur Laravel a été lancé ---
+    - name: Copier .env.example dans .env
+      command: docker exec "{{ container_app_name }}" bash -c "cp /var/www/html/.env.example /var/www/html/.env"
+      when: laravel_container.stdout == ""
 
-    - name: Générer l'APP_KEY Laravel
-      command: docker exec sampleapp php artisan key:generate
+    - name: Générer APP_KEY Laravel
+      command: docker exec "{{ container_app_name }}" php artisan key:generate
+      when: laravel_container.stdout == ""
