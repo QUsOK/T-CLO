@@ -34,6 +34,23 @@
         state: absent
 
     # ------------------------------------------------------------
+    # Mise à jour du cache apt et dépendances système
+    # ------------------------------------------------------------
+    - name: Mise à jour du cache apt
+      apt:
+        update_cache: true
+
+    - name: Installer dépendances système
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: true
+        
+    # ------------------------------------------------------------
     # Ajouter clé GPG Docker
     # ------------------------------------------------------------
     - name: Ajouter clé GPG Docker
@@ -49,23 +66,6 @@
       apt_repository:
         repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bullseye stable"
         filename: docker
-        state: present
-        update_cache: true
-
-    # ------------------------------------------------------------
-    # Mise à jour du cache apt et dépendances système
-    # ------------------------------------------------------------
-    - name: Mise à jour du cache apt
-      apt:
-        update_cache: true
-
-    - name: Installer dépendances système
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - software-properties-common
         state: present
         update_cache: true
 
