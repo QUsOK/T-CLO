@@ -49,7 +49,7 @@
           - lsb-release
         state: present
         update_cache: true
-        
+
     # ------------------------------------------------------------
     # Ajouter clé GPG Docker
     # ------------------------------------------------------------
@@ -138,18 +138,19 @@
       command: docker rm -f sampleapp
       ignore_errors: true
 
-    - name: Lancer le conteneur Laravel
-      command: >
-        docker run -d
-        --name sampleapp
-        --network laravel-net
-        -p 80:80
-        sampleapp
+    - name: Construire et lancer l'application Laravel
+      block:
+        - name: Supprimer ancien conteneur sampleapp
+          command: docker rm -f sampleapp
+          ignore_errors: true
 
-    - name: Créer un fichier .env dans le conteneur
-      command: >
-        docker exec sampleapp bash -c
-        "cp /var/www/html/.env.example /var/www/html/.env"
+        - name: Construire l'image Docker de l'application
+          command: docker build -t sampleapp "{{ app_dest_path }}"
 
-    - name: Générer APP_KEY Laravel
-      command: docker exec sampleapp php artisan key:generate
+        - name: Lancer le conteneur Laravel
+          command: >
+            docker run -d
+            --name sampleapp
+            --network laravel-net
+            -p 80:80
+            sampleapp
