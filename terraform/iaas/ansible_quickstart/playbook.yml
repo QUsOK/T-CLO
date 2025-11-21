@@ -6,16 +6,56 @@
   vars:
     app_src_path: "files/sample-app-master/"
     app_dest_path: "/home/azureuser/app/"
-    docker_network: "laravel-net"
 
   tasks:
-    # --- Nettoyer ancien dépôt Docker s'il existe ---
+
+    # ------------------------------------------------------------
+    # Nettoyer dépôt Docker existant pour éviter conflits Signed-By
+    # ------------------------------------------------------------
     - name: Supprimer dépôt Docker existant
       file:
         path: /etc/apt/sources.list.d/docker.list
         state: absent
 
-    # --- Installer dépendances système ---
+    - name: Supprimer ancien keyring Docker
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        state: absent
+
+    # ------------------------------------------------------------
+    # Créer le dossier keyrings
+    # ------------------------------------------------------------
+    - name: Créer /etc/apt/keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    # ------------------------------------------------------------
+    # Ajouter clé GPG Docker
+    # ------------------------------------------------------------
+    - name: Ajouter clé GPG Docker
+      get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.gpg
+        mode: '0644'
+
+    # ------------------------------------------------------------
+    # Ajouter dépôt APT Docker Debian
+    # ------------------------------------------------------------
+    - name: Ajouter dépôt APT Docker
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bullseye stable"
+        state: present
+        filename: docker.list
+
+    # ------------------------------------------------------------
+    # Mise à jour du cache apt et dépendances système
+    # ------------------------------------------------------------
+    - name: Mise à jour du cache apt
+      apt:
+        update_cache: yes
+
     - name: Installer dépendances système
       apt:
         name:
@@ -26,32 +66,9 @@
         state: present
         update_cache: yes
 
-    # --- Ajouter clé GPG Docker ---
-    - name: Ajouter clé GPG Docker
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
-
-    # --- Créer le répertoire keyrings si nécessaire ---
-    - name: Créer /etc/apt/keyrings
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-
-    # --- Ajouter dépôt APT Docker propre ---
-    - name: Ajouter dépôt APT Docker
-      apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu focal stable"
-        state: present
-        filename: docker.list
-
-    # --- Mise à jour du cache apt après ajout dépôt Docker ---
-    - name: Mise à jour du cache apt après dépôt Docker
-      apt:
-        update_cache: yes
-
-    # --- Installer Docker et dépendances ---
+    # ------------------------------------------------------------
+    # Installer Docker
+    # ------------------------------------------------------------
     - name: Installer Docker
       apt:
         name:
@@ -59,8 +76,6 @@
           - docker-ce-cli
           - containerd.io
           - docker-compose-plugin
-          - docker-ce-rootless-extras
-          - docker-buildx-plugin
         state: present
         update_cache: yes
 
@@ -70,7 +85,9 @@
         state: started
         enabled: true
 
-    # --- Préparer le dossier de déploiement ---
+    # ------------------------------------------------------------
+    # Préparer dossier de l'application
+    # ------------------------------------------------------------
     - name: Créer le dossier de déploiement
       file:
         path: "{{ app_dest_path }}"
@@ -87,65 +104,49 @@
         group: azureuser
         mode: '0755'
 
-    # --- Créer réseau Docker si inexistant ---
+    # ------------------------------------------------------------
+    # Créer réseau Docker
+    # ------------------------------------------------------------
     - name: Créer un réseau Docker pour Laravel/MySQL
-      command: docker network inspect {{ docker_network }}
-      register: network_check
-      failed_when: false
-      changed_when: false
+      command: docker network create laravel-net
+      ignore_errors: true
 
-    - name: Créer le réseau Docker s'il n'existe pas
-      command: docker network create {{ docker_network }}
-      when: network_check.rc != 0
-
-    # --- Lancer MySQL dans Docker (idempotent) ---
+    # ------------------------------------------------------------
+    # Lancer MySQL dans Docker
+    # ------------------------------------------------------------
     - name: Lancer MySQL dans Docker
-      docker_container:
-        name: mysql
-        image: mysql:5.7
-        state: started
-        restart_policy: always
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: laravel
-        networks:
-          - name: "{{ docker_network }}"
+      command: >
+        docker run -d
+        --name mysql
+        --network laravel-net
+        -e MYSQL_ROOT_PASSWORD=root
+        -e MYSQL_DATABASE=laravel
+        -p 3306:3306
+        mysql:5.7
+      ignore_errors: true
 
-    # --- Construire image Laravel ---
+    # ------------------------------------------------------------
+    # Build et lancer l'application Laravel
+    # ------------------------------------------------------------
     - name: Construire l'image Docker de l'application
-      docker_image:
-        build:
-          path: "{{ app_dest_path }}"
-        name: sampleapp
-        state: present
+      command: docker build -t sampleapp "{{ app_dest_path }}"
 
-    # --- Supprimer ancien conteneur Laravel s'il existe ---
     - name: Supprimer ancien conteneur sampleapp
-      docker_container:
-        name: sampleapp
-        state: absent
-        force_kill: true
+      command: docker rm -f sampleapp
+      ignore_errors: true
 
-    # --- Lancer conteneur Laravel ---
     - name: Lancer le conteneur Laravel
-      docker_container:
-        name: sampleapp
-        image: sampleapp
-        state: started
-        restart_policy: always
-        networks:
-          - name: "{{ docker_network }}"
-        published_ports:
-          - "80:80"
+      command: >
+        docker run -d
+        --name sampleapp
+        --network laravel-net
+        -p 80:80
+        sampleapp
 
-    # --- Créer .env Laravel ---
     - name: Créer un fichier .env dans le conteneur
-      command: docker exec sampleapp bash -c "cp /var/www/html/.env.example /var/www/html/.env"
-      args:
-        warn: false
+      command: >
+        docker exec sampleapp bash -c
+        "cp /var/www/html/.env.example /var/www/html/.env"
 
-    # --- Générer APP_KEY Laravel ---
-    - name: Générer l'APP_KEY Laravel
+    - name: Générer APP_KEY Laravel
       command: docker exec sampleapp php artisan key:generate
-      args:
-        warn: false

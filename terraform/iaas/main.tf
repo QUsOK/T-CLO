@@ -90,9 +90,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 
   source_image_reference {
-    publisher = "Canonical"
-    offer     = "0001-com-ubuntu-server-focal"
-    sku       = "20_04-lts"
+    publisher = "Debian"
+    offer     = "debian-11"   # Debian 11 "bullseye"
+    sku       = "11-gen2"     # SKU selon Azure Marketplace
     version   = "latest"
   }
 }
