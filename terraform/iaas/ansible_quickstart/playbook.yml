@@ -10,7 +10,7 @@
   tasks:
 
     # ------------------------------------------------------------
-    # Installer et démarrer SSH
+    # SSH
     # ------------------------------------------------------------
     - name: Installer et démarrer SSH
       apt:
@@ -25,7 +25,7 @@
         enabled: true
 
     # ------------------------------------------------------------
-    # Nettoyer dépôt Docker existant
+    # Nettoyage ancien dépôt Docker
     # ------------------------------------------------------------
     - name: Supprimer dépôt Docker existant
       file:
@@ -34,12 +34,16 @@
 
     - name: Supprimer ancien keyring Docker
       file:
-        path: /usr/share/keyrings/docker-archive-keyring.gpg
+        path: /etc/apt/keyrings/docker.gpg
         state: absent
 
     # ------------------------------------------------------------
-    # Installer dépendances système
+    # Mise à jour système
     # ------------------------------------------------------------
+    - name: Mise à jour du cache apt
+      apt:
+        update_cache: true
+
     - name: Installer dépendances système
       apt:
         name:
@@ -47,11 +51,12 @@
           - curl
           - gnupg
           - lsb-release
+          - rsync          # Important pour synchronize
         state: present
         update_cache: true
 
     # ------------------------------------------------------------
-    # Ajouter clé GPG Docker
+    # Installer clé GPG Docker
     # ------------------------------------------------------------
     - name: Ajouter clé GPG Docker
       ansible.builtin.shell: |
@@ -60,7 +65,7 @@
         creates: /usr/share/keyrings/docker-archive-keyring.gpg
 
     # ------------------------------------------------------------
-    # Ajouter dépôt APT Docker Debian
+    # Ajouter dépôt Docker Debian
     # ------------------------------------------------------------
     - name: Ajouter dépôt APT Docker Debian
       apt_repository:
@@ -89,7 +94,7 @@
         enabled: true
 
     # ------------------------------------------------------------
-    # Préparer dossier de l'application
+    # Préparer dossier application
     # ------------------------------------------------------------
     - name: Créer le dossier de déploiement
       file:
@@ -99,37 +104,31 @@
         group: azureuser
         mode: '0755'
 
-    - name: Copier l'application sample-app-master
-      copy:
+    # ------------------------------------------------------------
+    # Synchroniser l'application (remplace COPY)
+    # ------------------------------------------------------------
+    - name: Synchroniser sample-app-master via rsync
+      ansible.posix.synchronize:
         src: "{{ app_src_path }}"
         dest: "{{ app_dest_path }}"
-        owner: azureuser
-        group: azureuser
-        mode: '0755'
+        recursive: yes
+        delete: no
+      delegate_to: localhost
 
     # ------------------------------------------------------------
-    # Créer réseau Docker
+    # Docker : réseau + containers
     # ------------------------------------------------------------
-    - name: Vérifier si le réseau Docker existe
-      command: docker network ls -q -f name=laravel-net
-      register: laravel_net
-      changed_when: false
+    - name: Supprimer réseau existant si nécessaire
+      command: docker network rm laravel-net
+      ignore_errors: true
 
     - name: Créer un réseau Docker pour Laravel/MySQL
       command: docker network create laravel-net
-      when: laravel_net.stdout == ""
+      ignore_errors: true
 
-    # ------------------------------------------------------------
-    # Lancer MySQL dans Docker
-    # ------------------------------------------------------------
-    - name: Vérifier si MySQL existe
-      command: docker ps -a -q -f name=mysql
-      register: mysql_container
-      changed_when: false
-
-    - name: Supprimer ancien conteneur MySQL si existant
+    - name: Supprimer conteneur MySQL s'il existe
       command: docker rm -f mysql
-      when: mysql_container.stdout != ""
+      ignore_errors: true
 
     - name: Lancer MySQL dans Docker
       command: >
@@ -140,21 +139,17 @@
         -e MYSQL_DATABASE=laravel
         -p 3306:3306
         mysql:5.7
+      ignore_errors: true
 
     # ------------------------------------------------------------
-    # Build et lancer l'application Laravel
+    # Build & Run Laravel container
     # ------------------------------------------------------------
-    - name: Vérifier si sampleapp existe
-      command: docker ps -a -q -f name=sampleapp
-      register: sampleapp_container
-      changed_when: false
-
-    - name: Supprimer ancien conteneur sampleapp si existant
-      command: docker rm -f sampleapp
-      when: sampleapp_container.stdout != ""
-
     - name: Construire l'image Docker de l'application
       command: docker build -t sampleapp "{{ app_dest_path }}"
+
+    - name: Supprimer ancien conteneur sampleapp
+      command: docker rm -f sampleapp
+      ignore_errors: true
 
     - name: Lancer le conteneur Laravel
       command: >
