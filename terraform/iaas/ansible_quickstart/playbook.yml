@@ -54,11 +54,12 @@
     # ------------------------------------------------------------
     # Ajouter dépôt APT Docker Debian
     # ------------------------------------------------------------
-    - name: Ajouter dépôt APT Docker
+    - name: Ajouter dépôt APT Docker Debian
       apt_repository:
         repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bullseye stable"
+        filename: docker
         state: present
-        filename: docker.list
+        update_cache: yes
 
     # ------------------------------------------------------------
     # Mise à jour du cache apt et dépendances système
