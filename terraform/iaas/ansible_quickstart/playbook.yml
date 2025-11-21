@@ -8,6 +8,10 @@
     app_dest_path: "/home/azureuser/app/"
 
   tasks:
+
+    # ------------------------------------------------------------
+    # Installer et démarrer SSH
+    # ------------------------------------------------------------
     - name: Installer et démarrer SSH
       apt:
         name: openssh-server
@@ -21,7 +25,7 @@
         enabled: true
 
     # ------------------------------------------------------------
-    # Nettoyer dépôt Docker existant pour éviter conflits Signed-By
+    # Nettoyer dépôt Docker existant
     # ------------------------------------------------------------
     - name: Supprimer dépôt Docker existant
       file:
@@ -30,16 +34,12 @@
 
     - name: Supprimer ancien keyring Docker
       file:
-        path: /etc/apt/keyrings/docker.gpg
+        path: /usr/share/keyrings/docker-archive-keyring.gpg
         state: absent
 
     # ------------------------------------------------------------
-    # Mise à jour du cache apt et dépendances système
+    # Installer dépendances système
     # ------------------------------------------------------------
-    - name: Mise à jour du cache apt
-      apt:
-        update_cache: true
-
     - name: Installer dépendances système
       apt:
         name:
@@ -110,13 +110,27 @@
     # ------------------------------------------------------------
     # Créer réseau Docker
     # ------------------------------------------------------------
+    - name: Vérifier si le réseau Docker existe
+      command: docker network ls -q -f name=laravel-net
+      register: laravel_net
+      changed_when: false
+
     - name: Créer un réseau Docker pour Laravel/MySQL
       command: docker network create laravel-net
-      ignore_errors: true
+      when: laravel_net.stdout == ""
 
     # ------------------------------------------------------------
     # Lancer MySQL dans Docker
     # ------------------------------------------------------------
+    - name: Vérifier si MySQL existe
+      command: docker ps -a -q -f name=mysql
+      register: mysql_container
+      changed_when: false
+
+    - name: Supprimer ancien conteneur MySQL si existant
+      command: docker rm -f mysql
+      when: mysql_container.stdout != ""
+
     - name: Lancer MySQL dans Docker
       command: >
         docker run -d
@@ -126,27 +140,34 @@
         -e MYSQL_DATABASE=laravel
         -p 3306:3306
         mysql:5.7
-      ignore_errors: true
 
     # ------------------------------------------------------------
     # Build et lancer l'application Laravel
     # ------------------------------------------------------------
+    - name: Vérifier si sampleapp existe
+      command: docker ps -a -q -f name=sampleapp
+      register: sampleapp_container
+      changed_when: false
+
+    - name: Supprimer ancien conteneur sampleapp si existant
+      command: docker rm -f sampleapp
+      when: sampleapp_container.stdout != ""
+
     - name: Construire l'image Docker de l'application
       command: docker build -t sampleapp "{{ app_dest_path }}"
 
-    - name: Construire et lancer l'application Laravel
-      block:
-        - name: Supprimer ancien conteneur sampleapp
-          command: docker rm -f sampleapp
-          ignore_errors: true
+    - name: Lancer le conteneur Laravel
+      command: >
+        docker run -d
+        --name sampleapp
+        --network laravel-net
+        -p 80:80
+        sampleapp
 
-        - name: Construire l'image Docker de l'application
-          command: docker build -t sampleapp "{{ app_dest_path }}"
+    - name: Créer un fichier .env dans le conteneur
+      command: >
+        docker exec sampleapp bash -c
+        "cp /var/www/html/.env.example /var/www/html/.env"
 
-        - name: Lancer le conteneur Laravel
-          command: >
-            docker run -d
-            --name sampleapp
-            --network laravel-net
-            -p 80:80
-            sampleapp
+    - name: Générer APP_KEY Laravel
+      command: docker exec sampleapp php artisan key:generate
