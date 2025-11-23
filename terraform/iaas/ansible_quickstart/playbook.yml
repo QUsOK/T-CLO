@@ -92,23 +92,31 @@
         enabled: true
 
     # ------------------------------------------------------------
-    # Lancer l'application avec Docker Compose
+    # Lancer Docker Compose
     # ------------------------------------------------------------
-    - name: Lancer Docker Compose
-      command: docker compose up -d
+    - name: Lancer le conteneur DB seul
+      command: docker compose up -d db
       args:
         chdir: "{{ app_dest_path }}"
 
-    # ------------------------------------------------------------
-    # Attendre que la DB soit prête
-    # ------------------------------------------------------------
+    - name: Attendre que le conteneur db existe
+      shell: docker ps -q -f name=db
+      register: db_container
+      retries: 20
+      delay: 3
+      until: db_container.stdout != ""
+
     - name: Attendre que MySQL soit prêt
-      shell: |
-        docker exec db mysqladmin ping -uroot -papp_root_password
+      shell: docker exec db mysqladmin ping -uroot -papp_root_password
       register: mysql_check
       retries: 20
       delay: 3
       until: mysql_check.rc == 0
+
+    - name: Lancer le conteneur app
+      command: docker compose up -d app
+      args:
+        chdir: "{{ app_dest_path }}"
 
     # ------------------------------------------------------------
     # Lancer les migrations Laravel
