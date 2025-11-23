@@ -106,14 +106,6 @@
       delay: 3
       until: db_container.stdout != ""
 
-    - name: Attendre que le conteneur DB soit healthy
-      shell: "until [ \"$(docker inspect --format='{{.State.Health.Status}}' db)\" == 'healthy' ]; do sleep 3; done"
-      retries: 40
-      delay: 5
-      register: db_health
-      until: db_health.rc == 0
-
-
     - name: Attendre que MySQL soit prêt
       shell: docker exec db mysqladmin ping -uroot -papp_root_password
       register: mysql_check
