@@ -7,78 +7,75 @@
     app_src_path: "{{ playbook_dir }}/files/sample-app-master/"
     app_dest_path: "/home/azureuser/app/"
 
-
   tasks:
 
     # ------------------------------------------------------------
-    # SSH
+    # Installer SSH et rsync
     # ------------------------------------------------------------
-    - name: Installer et démarrer SSH
+    - name: Installer openssh-server, rsync et sudo
       apt:
-        name: openssh-server
+        name:
+          - openssh-server
+          - rsync
+          - sudo
         state: present
         update_cache: true
 
-    - name: Activer et démarrer SSH
+    - name: Démarrer et activer SSH
       service:
         name: ssh
         state: started
         enabled: true
 
     # ------------------------------------------------------------
-    # Nettoyage ancien dépôt Docker
+    # Créer le dossier de l'application
     # ------------------------------------------------------------
-    - name: Supprimer dépôt Docker existant
+    - name: Créer le dossier de déploiement
       file:
-        path: /etc/apt/sources.list.d/docker.list
-        state: absent
-
-    - name: Supprimer ancien keyring Docker
-      file:
-        path: /etc/apt/keyrings/docker.gpg
-        state: absent
+        path: "{{ app_dest_path }}"
+        state: directory
+        owner: azureuser
+        group: azureuser
+        mode: '0755'
 
     # ------------------------------------------------------------
-    # Mise à jour système
+    # Synchroniser l'application via rsync
     # ------------------------------------------------------------
-    - name: Mise à jour du cache apt
-      apt:
-        update_cache: true
+    - name: Synchroniser sample-app-master via rsync
+      ansible.posix.synchronize:
+        src: "{{ app_src_path }}"
+        dest: "{{ app_dest_path }}"
+        recursive: yes
+        delete: no
+      delegate_to: localhost
 
-    - name: Installer dépendances système
+    # ------------------------------------------------------------
+    # Installer Docker et Docker Compose
+    # ------------------------------------------------------------
+    - name: Installer dépendances Docker
       apt:
         name:
+          - apt-transport-https
           - ca-certificates
           - curl
           - gnupg
           - lsb-release
-          - rsync          # Important pour synchronize
         state: present
         update_cache: true
 
-    # ------------------------------------------------------------
-    # Installer clé GPG Docker
-    # ------------------------------------------------------------
     - name: Ajouter clé GPG Docker
       ansible.builtin.shell: |
         curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
       args:
         creates: /usr/share/keyrings/docker-archive-keyring.gpg
 
-    # ------------------------------------------------------------
-    # Ajouter dépôt Docker Debian
-    # ------------------------------------------------------------
-    - name: Ajouter dépôt APT Docker Debian
+    - name: Ajouter dépôt Docker
       apt_repository:
         repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bullseye stable"
-        filename: docker
         state: present
         update_cache: true
 
-    # ------------------------------------------------------------
-    # Installer Docker
-    # ------------------------------------------------------------
-    - name: Installer Docker
+    - name: Installer Docker et Compose
       apt:
         name:
           - docker-ce
@@ -95,89 +92,26 @@
         enabled: true
 
     # ------------------------------------------------------------
-    # Préparer dossier application
+    # Lancer l'application avec Docker Compose
     # ------------------------------------------------------------
-    - name: Créer le dossier de déploiement
-      file:
-        path: "{{ app_dest_path }}"
-        state: directory
-        owner: azureuser
-        group: azureuser
-        mode: '0755'
+    - name: Lancer Docker Compose
+      command: docker compose up -d
+      args:
+        chdir: "{{ app_dest_path }}"
 
     # ------------------------------------------------------------
-    # Synchroniser l'application (remplace COPY)
+    # Attendre que la DB soit prête
     # ------------------------------------------------------------
-    - name: Synchroniser sample-app-master via rsync
-      ansible.posix.synchronize:
-        src: "{{ app_src_path }}"
-        dest: "{{ app_dest_path }}"
-        recursive: yes
-        delete: no
-      delegate_to: localhost
-
-    # ------------------------------------------------------------
-    # Docker : réseau + containers
-    # ------------------------------------------------------------
-    - name: Supprimer réseau existant si nécessaire
-      command: docker network rm laravel-net
-      ignore_errors: true
-
-    - name: Créer un réseau Docker pour Laravel/MySQL
-      command: docker network create laravel-net
-      ignore_errors: true
-
-    # ------------------------------------------------------------
-    # MySQL container
-    # ------------------------------------------------------------
-    - name: Supprimer conteneur MySQL s'il existe
-      command: docker rm -f mysql
-      ignore_errors: true
-
-    - name: Lancer MySQL dans Docker
-      command: >
-        docker run -d
-        --name mysql
-        --network laravel-net
-        -e MYSQL_ROOT_PASSWORD=root
-        -e MYSQL_DATABASE=laravel
-        -p 3306:3306
-        mysql:5.7
-
     - name: Attendre que MySQL soit prêt
-      command: >
-        docker exec mysql bash -c "until mysql -uroot -proot -e 'select 1' &> /dev/null; do sleep 2; done"
+      shell: |
+        docker exec db mysqladmin ping -uroot -papp_root_password
+      register: mysql_check
+      retries: 20
+      delay: 3
+      until: mysql_check.rc == 0
 
     # ------------------------------------------------------------
-    # Laravel container
+    # Lancer les migrations Laravel
     # ------------------------------------------------------------
-    - name: Supprimer ancien conteneur Laravel si nécessaire
-      command: docker rm -f sampleapp
-      ignore_errors: true
-
-    - name: Construire l'image Docker de l'application
-      command: docker build -t sampleapp "{{ app_dest_path }}"
-
-    - name: Créer le fichier .env pour Laravel avec DB correct
-      command: >
-        docker exec sampleapp bash -c "
-        cp /var/www/html/.env.example /var/www/html/.env && \
-        sed -i 's/DB_HOST=127.0.0.1/DB_HOST=mysql/' /var/www/html/.env && \
-        sed -i 's/DB_DATABASE=laravel/DB_DATABASE=laravel/' /var/www/html/.env && \
-        sed -i 's/DB_USERNAME=root/DB_USERNAME=root/' /var/www/html/.env && \
-        sed -i 's/DB_PASSWORD=/DB_PASSWORD=root/' /var/www/html/.env
-        "
-
-    - name: Générer APP_KEY Laravel
-      command: docker exec sampleapp php artisan key:generate
-
     - name: Exécuter les migrations Laravel
-      command: docker exec sampleapp php artisan migrate --force
-
-    - name: Lancer le conteneur Laravel
-      command: >
-        docker run -d
-        --name sampleapp
-        --network laravel-net
-        -p 80:80
-        sampleapp
+      command: docker exec app php artisan migrate --force
