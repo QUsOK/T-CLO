@@ -127,6 +127,9 @@
       command: docker network create laravel-net
       ignore_errors: true
 
+    # ------------------------------------------------------------
+    # MySQL container
+    # ------------------------------------------------------------
     - name: Supprimer conteneur MySQL s'il existe
       command: docker rm -f mysql
       ignore_errors: true
@@ -140,17 +143,36 @@
         -e MYSQL_DATABASE=laravel
         -p 3306:3306
         mysql:5.7
-      ignore_errors: true
+
+    - name: Attendre que MySQL soit prêt
+      command: >
+        docker exec mysql bash -c "until mysql -uroot -proot -e 'select 1' &> /dev/null; do sleep 2; done"
 
     # ------------------------------------------------------------
-    # Build & Run Laravel container
+    # Laravel container
     # ------------------------------------------------------------
+    - name: Supprimer ancien conteneur Laravel si nécessaire
+      command: docker rm -f sampleapp
+      ignore_errors: true
+
     - name: Construire l'image Docker de l'application
       command: docker build -t sampleapp "{{ app_dest_path }}"
 
-    - name: Supprimer ancien conteneur sampleapp
-      command: docker rm -f sampleapp
-      ignore_errors: true
+    - name: Créer le fichier .env pour Laravel avec DB correct
+      command: >
+        docker exec sampleapp bash -c "
+        cp /var/www/html/.env.example /var/www/html/.env && \
+        sed -i 's/DB_HOST=127.0.0.1/DB_HOST=mysql/' /var/www/html/.env && \
+        sed -i 's/DB_DATABASE=laravel/DB_DATABASE=laravel/' /var/www/html/.env && \
+        sed -i 's/DB_USERNAME=root/DB_USERNAME=root/' /var/www/html/.env && \
+        sed -i 's/DB_PASSWORD=/DB_PASSWORD=root/' /var/www/html/.env
+        "
+
+    - name: Générer APP_KEY Laravel
+      command: docker exec sampleapp php artisan key:generate
+
+    - name: Exécuter les migrations Laravel
+      command: docker exec sampleapp php artisan migrate --force
 
     - name: Lancer le conteneur Laravel
       command: >
@@ -159,11 +181,3 @@
         --network laravel-net
         -p 80:80
         sampleapp
-
-    - name: Créer un fichier .env dans le conteneur
-      command: >
-        docker exec sampleapp bash -c
-        "cp /var/www/html/.env.example /var/www/html/.env"
-
-    - name: Générer APP_KEY Laravel
-      command: docker exec sampleapp php artisan key:generate
