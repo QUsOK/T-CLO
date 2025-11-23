@@ -4,8 +4,9 @@
   become: true
 
   vars:
-    app_src_path: "./terraform/iaas/ansible_quickstart/files/sample-app-master/"
+    app_src_path: "{{ playbook_dir }}/files/sample-app-master/"
     app_dest_path: "/home/azureuser/app/"
+
 
   tasks:
 
