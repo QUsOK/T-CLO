@@ -89,7 +89,7 @@ output "ssh_private_key" {
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                  = "vm"
+  name                  = "vm-review"
   resource_group_name   = data.azurerm_resource_group.rg.name
   location              = var.location
   size                  = "Standard_B1ls"
